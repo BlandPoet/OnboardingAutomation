@@ -1,0 +1,132 @@
+# Import required modules
+Import-Module ActiveDirectory
+Import-Module ExchangeOnlineManagement
+
+<# Automation to creating on prim AD user accounts
+This is based off of a template that uses Firstname,Lastname,Title,Type (used to copy based off of template accounts), OU Location which was $clinic since this was used in 
+
+
+# CSV path
+$CsvPath = "Place csv path here"
+
+# Function to get OU path based on Clinic
+function Get-OU {
+    param (
+        [string]$#OU 
+    )
+    switch ($Clinic) {
+       #place OUs here
+        default { return "OU=OU,DC=DC,DC=DC" } #Edit params here
+    }
+}
+
+# Function to copy group memberships and manager attribute
+function Copy-GroupMemberships {
+    param (
+        [string]$TargetUsername,
+        [string]$OU,
+        [string]$Type
+    )
+
+    # Format for template user This is how i formatted it but this can be changed easily
+    $TemplateUPN = "$OU-$Type@sofha.net" 
+    
+    $TemplateUserObj = Get-ADUser -Filter { UserPrincipalName -eq $TemplateUPN } -Properties MemberOf, Manager -ErrorAction SilentlyContinue
+    if (-not $TemplateUserObj) {
+        Write-Warning "Template user with UPN '$TemplateUPN' not found."
+        return
+    }
+
+    # Copy group memberships
+    $TemplateUserObj.MemberOf | ForEach-Object {
+        try {
+            Add-ADGroupMember -Identity $_ -Members $TargetUsername -ErrorAction Stop
+        } catch {
+            Write-Warning "Failed to add user '$TargetUsername' to group '$_'."
+        }
+    }
+
+    # Copy manager attribute
+    if ($TemplateUserObj.Manager) {
+        try {
+            Set-ADUser -Identity $TargetUsername -Manager $TemplateUserObj.Manager -ErrorAction Stop
+        } catch {
+            Write-Warning "Failed to set manager for user '$TargetUsername'."
+        }
+    }
+}
+
+# Function to create a new AD user
+function New-User {
+    param (
+#Insert Params here
+    )
+
+    # Check if LastName is provided
+    if ([string]::IsNullOrEmpty($LastName)) {
+        Write-Warning "Skipping user creation for ${Fullname}: LastName is null or empty."
+        return
+    }
+
+    # Generate a unique SamAccountName
+    $SamAccountName = if ($Type -eq "<#alternative name format#>") { "$($FirstName.Substring(0,1))$LastName" } else { "$FirstName$($LastName.Substring(0,1))" }
+    $counter = 1
+    while (Get-ADUser -Filter "SamAccountName -eq '$SamAccountName'" -ErrorAction SilentlyContinue) {
+        $SamAccountName = if ($Type -eq "Provider") { "$($FirstName.Substring(0,1))$LastName$counter" } else { "$FirstName$($LastName.Substring(0,1))$counter" }
+        $counter++
+    }
+
+    # user properties add ones that are needed
+    $UserParams = @{
+        Name                = $Fullname
+        GivenName           = $FirstName
+        Surname             = $LastName
+        SamAccountName      = $SamAccountName
+        UserPrincipalName   = "$SamAccountName@$DC"
+        Title               = $Title
+        Path                = #Get-OU function 
+        OtherAttributes     = 
+        AccountPassword     = ConvertTo-SecureString "Welcome1" -AsPlainText -Force
+        Office              = $Clinic
+        Description         = $Title
+        DisplayName         = $Fullname
+        EmailAddress        = "$FirstName$LastName@$DC"
+        Enable              = $true
+    }
+
+    # create AD user
+    try {
+        New-ADUser @UserParams -ErrorAction Stop
+        Write-Host "Created user $Fullname with SamAccountName $SamAccountName"
+    }
+    catch {
+        Write-Warning "Error creating user $($Fullname): $_"
+        return
+    }
+
+    # Set password to change on next login
+    try {
+        Set-ADUser -Identity $SamAccountName -ChangePasswordAtLogon $true
+    }
+    catch {
+        Write-Warning "Failed to set password change policy for user $SamAccountName. $_"
+    }
+
+    # Copy group memberships and manager attribute from template
+    Copy-GroupMemberships -TargetUsername $SamAccountName #add targets here
+}
+
+# Import CSV and process users
+$Users = Import-Csv -Path $CsvPath
+foreach ($User in $Users) {
+    New-User -FirstName $User.FirstName `
+             -LastName $User.LastName `
+             -Type $User.Type `
+             -Title $User.Title `
+             -Fullname $User.Fullname `
+              #add as needed
+
+              
+}
+
+Write-Host "User creation process completed."
