@@ -3,7 +3,7 @@ Import-Module ActiveDirectory
 Import-Module ExchangeOnlineManagement
 
 <# Automation to creating on prim AD user accounts
-This is based off of a template that uses Firstname,Lastname,Title,Type (used to copy based off of template accounts), OU Location which was $clinic since this was used in 
+This is based off of a template that uses Firstname,Lastname,Title,Type (used to copy based off of template accounts), OU Location which was $clinic since this was used in #>
 
 
 # CSV path
@@ -87,7 +87,7 @@ function New-User {
         Path                = #Get-OU function 
         OtherAttributes     = 
         AccountPassword     = ConvertTo-SecureString "Welcome1" -AsPlainText -Force
-        Office              = $Clinic
+        Office              = #OU
         Description         = $Title
         DisplayName         = $Fullname
         EmailAddress        = "$FirstName$LastName@$DC"
